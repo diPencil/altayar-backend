@@ -5,7 +5,7 @@ import json
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "sqlite:///d:/Development/altayar/MobileApp/backend/altayarvip.db"
+    DATABASE_URL: str = "sqlite:///./altayarvip.db"
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 10
     
