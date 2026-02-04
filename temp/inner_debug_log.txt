@@ -1,0 +1,16 @@
+Searching for user: test1@test1.com
+User Found: mahmoud test
+   ID: aa7f38aa-2b77-40ad-9bfa-711b98bc7cbe
+------------------------------
+checking POINTS...
+   Points Balance: 1500
+   Total Earned: 1500
+------------------------------
+checking CASHBACK...
+   Total Records: 1
+   - Amount: 500.0 | Status: CashbackStatus.CREDITED | Type: ADMIN_BONUS
+   Calculated CREDITED Total: 500.0
+------------------------------
+checking WALLET...
+   Total Transactions: 1
+   Last Wallet Balance: 500.0 USD

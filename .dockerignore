@@ -1,0 +1,55 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Ignore virtual environment
+venv/
+env/
+.venv/
+
+# Ignore IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore test files
+tests/
+*.test.py
+pytest.ini
+.pytest_cache/
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore docs (keep README)
+*.md
+!README.md
+
+# Ignore local env files
+.env
+.env.local
+.env.development
+*.env.template
+
+# Ignore SQLite (dev only)
+*.db
+*.sqlite3
+
+# Ignore logs
+*.log
+logs/
+
+# Ignore coverage
+.coverage
+htmlcov/
+
+# Ignore alembic versions (will be managed separately)
+# alembic/versions/
+
+# Ignore storage (will be mounted volume)
+# storage/
