@@ -4,6 +4,9 @@ from typing import Optional, Tuple
 from jose import jwt, JWTError
 import uuid
 import logging
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from config.settings import settings
 from modules.users.models import User, UserRole, UserStatus
@@ -14,6 +17,9 @@ from shared.exceptions import BadRequestException, UnauthorizedException, Confli
 from modules.referrals.models import ReferralCode, Referral
 
 logger = logging.getLogger(__name__)
+
+# Global storage for reset codes (in-memory persistent across requests)
+_RESET_CODES = {}
 
 
 class AuthService:
@@ -374,11 +380,7 @@ class AuthService:
         
         # Store code with expiry (15 minutes) - using a simple in-memory cache
         # In production, use Redis or database table
-        if not hasattr(self, '_reset_codes'):
-            self._reset_codes = {}
-        
-        expiry = datetime.utcnow() + timedelta(minutes=15)
-        self._reset_codes[email] = {
+        _RESET_CODES[email] = {
             'code': reset_code,
             'expiry': expiry,
             'user_id': user.id
@@ -386,21 +388,62 @@ class AuthService:
         
         logger.info(f"Password reset code generated for {email}: {reset_code} (expires at {expiry})")
         
-        # TODO: Send email with reset code
-        # For now, just log it
-        logger.info(f"📧 Reset code for {email}: {reset_code}")
+        # Send email with reset code
+        try:
+            self._send_password_reset_email(email, reset_code)
+            logger.info(f"📧 Reset code email sent to {email}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send reset email to {email}: {e}")
+            # Still return success to help with debugging/manual testing from logs
         
         return {"code": reset_code}  # Return for development/testing
+    
+    def _send_password_reset_email(self, email: str, code: str):
+        """Send password reset email using SMTP settings"""
+        if not settings.SMTP_HOST or not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+            logger.warning(f"SMTP not configured. Reset code for {email} is: {code}")
+            return
+            
+        try:
+            message = MIMEMultipart("alternative")
+            message["Subject"] = f"{settings.APP_NAME} - Password Reset Code"
+            message["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+            message["To"] = email
+
+            text = f"Your password reset code is: {code}. It will expire in 15 minutes."
+            html = f"""
+            <html>
+                <body>
+                    <h2>Password Reset Request</h2>
+                    <p>You requested to reset your password for <strong>{settings.APP_NAME}</strong>.</p>
+                    <p>Your verification code is: <strong>{code}</strong></p>
+                    <p>This code will expire in 15 minutes.</p>
+                    <p>If you did not request this, please ignore this email.</p>
+                </body>
+            </html>
+            """
+
+            part1 = MIMEText(text, "plain")
+            part2 = MIMEText(html, "html")
+            message.attach(part1)
+            message.attach(part2)
+
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.sendmail(settings.EMAILS_FROM_EMAIL, email, message.as_string())
+        except Exception as e:
+            raise Exception(f"SMTP error: {str(e)}")
     
     def reset_password(self, email: str, code: str, new_password: str) -> None:
         """
         Reset user password using verification code.
         """
         # Check if code exists and is valid
-        if not hasattr(self, '_reset_codes') or email not in self._reset_codes:
+        if email not in _RESET_CODES:
             raise BadRequestException("Invalid or expired reset code")
         
-        stored_data = self._reset_codes[email]
+        stored_data = _RESET_CODES[email]
         
         # Check if code matches
         if stored_data['code'] != code:
@@ -408,7 +451,7 @@ class AuthService:
         
         # Check if code is expired
         if datetime.utcnow() > stored_data['expiry']:
-            del self._reset_codes[email]
+            del _RESET_CODES[email]
             raise BadRequestException("Reset code has expired")
         
         # Find user
@@ -425,6 +468,6 @@ class AuthService:
         self.db.commit()
         
         # Delete used code
-        del self._reset_codes[email]
+        del _RESET_CODES[email]
         
         logger.info(f"Password reset successfully for user {user.id}")

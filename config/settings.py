@@ -68,8 +68,8 @@ class Settings(BaseSettings):
     
     # Application URLs
     APP_BASE_URL: str = "http://localhost:8082"
-    PAYMENT_SUCCESS_URL: str = "app://payment/success"
-    PAYMENT_FAIL_URL: str = "app://payment/fail"
+    PAYMENT_SUCCESS_URL: str = "altayarvip://payment/success"
+    PAYMENT_FAIL_URL: str = "altayarvip://payment/fail"
     
     # Application
     APP_NAME: str = "AltayarVIP"

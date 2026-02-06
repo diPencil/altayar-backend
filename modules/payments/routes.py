@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session, joinedload
 from typing import Dict, Any, List
 import logging
@@ -120,6 +121,76 @@ def get_payment_status(
         "paid_at": payment.paid_at.isoformat() if payment.paid_at else None,
         "error_message": payment.error_message
     }
+
+
+@router.get("/success", response_class=HTMLResponse)
+def payment_success(request: Request):
+    """
+    HTML landing page for successful payments.
+    Fawaterk redirects here.
+    """
+    return """
+    <html>
+        <head>
+            <title>Payment Successful</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f0fdf4; color: #166534; }
+                .card { background: white; padding: 2rem; border-radius: 1rem; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; }
+                h1 { margin-top: 0; }
+                .btn { display: inline-block; margin-top: 1rem; padding: 0.75rem 1.5rem; background: #22c55e; color: white; text-decoration: none; border-radius: 0.5rem; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>✅ تم الدفع بنجاح</h1>
+                <p>شكراً لك! سيتم تحويلك الآن للعودة للتطبيق.</p>
+                <a href="altayarvip://payment/success" class="btn">العودة للتطبيق</a>
+            </div>
+            <script>
+                // Try to auto-redirect after 2 seconds
+                setTimeout(function() {
+                    window.location.href = "altayarvip://payment/success";
+                }, 2000);
+            </script>
+        </body>
+    </html>
+    """
+
+
+@router.get("/fail", response_class=HTMLResponse)
+def payment_fail(request: Request):
+    """
+    HTML landing page for failed payments.
+    Fawaterk redirects here.
+    """
+    return """
+    <html>
+        <head>
+            <title>Payment Failed</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #fef2f2; color: #991b1b; }
+                .card { background: white; padding: 2rem; border-radius: 1rem; shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; }
+                h1 { margin-top: 0; }
+                .btn { display: inline-block; margin-top: 1rem; padding: 0.75rem 1.5rem; background: #ef4444; color: white; text-decoration: none; border-radius: 0.5rem; font-weight: bold; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>❌ فشل الدفع</h1>
+                <p>نعتذر، حدثت مشكلة أثناء معالجة الدفع.</p>
+                <a href="altayarvip://payment/fail" class="btn">العودة للتطبيق</a>
+            </div>
+            <script>
+                // Try to auto-redirect after 2 seconds
+                setTimeout(function() {
+                    window.location.href = "altayarvip://payment/fail";
+                }, 2000);
+            </script>
+        </body>
+    </html>
+    """
 
 
 @router.get("/webhook-logs")
