@@ -377,7 +377,8 @@ class AuthService:
         # Generate 6-digit code
         import random
         reset_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
-        
+        expiry = datetime.utcnow() + timedelta(minutes=15)
+
         # Store code with expiry (15 minutes) - using a simple in-memory cache
         # In production, use Redis or database table
         _RESET_CODES[email] = {

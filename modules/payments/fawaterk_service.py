@@ -33,22 +33,44 @@ class FawaterkService:
             "Content-Type": "application/json"
         }
         
-        # Fawaterk expected payload structure
+        # Redirect URLs: if still deep link but we have https API base, use it (Fawaterk often requires https)
+        success_url = payment_data.get("success_url") or settings.PAYMENT_SUCCESS_URL
+        fail_url = payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL
+        base = getattr(settings, "APP_BASE_URL", "") or ""
+        if (success_url.startswith("altayarvip://") and base.strip().lower().startswith("https://")):
+            base = base.rstrip("/")
+            success_url = f"{base}/api/payments/success"
+            fail_url = f"{base}/api/payments/fail"
+            logger.info(f"🔵 Using derived payment redirect URLs: success={success_url}, fail={fail_url}")
+
+        # Fawaterk expected payload structure (avoid empty strings for required-looking fields)
+        customer_phone = payment_data.get("customer_phone") or ""
+        if not customer_phone.strip():
+            customer_phone = "0000000000"  # Placeholder; some gateways reject empty phone
+        customer_address = payment_data.get("customer_address") or ""
+        if not customer_address.strip():
+            customer_address = "N/A"
+        payment_method_id = payment_data.get("payment_method_id")
+        if payment_method_id is None:
+            payment_method_id = getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)  # 2=Fawry often works
+        currency = payment_data.get("currency") or settings.DEFAULT_CURRENCY
+        if getattr(settings, "FAWATERK_FORCE_CURRENCY", None):
+            currency = settings.FAWATERK_FORCE_CURRENCY
         payload = {
-            "payment_method_id": payment_data.get("payment_method_id", 1),  # 1=card, 2=fawry, etc.
+            "payment_method_id": payment_method_id,
             "cartTotal": str(payment_data["amount"]),
-            "currency": payment_data.get("currency", settings.DEFAULT_CURRENCY),  # Use setting as fallback
+            "currency": currency,
             "customer": {
-                "first_name": payment_data["customer_first_name"],
-                "last_name": payment_data.get("customer_last_name", ""),
-                "email": payment_data["customer_email"],
-                "phone": payment_data.get("customer_phone", ""),
-                "address": payment_data.get("customer_address", "")
+                "first_name": payment_data["customer_first_name"] or "Customer",
+                "last_name": payment_data.get("customer_last_name") or "",
+                "email": payment_data["customer_email"] or "customer@example.com",
+                "phone": customer_phone,
+                "address": customer_address
             },
             "redirectionUrls": {
-                "successUrl": payment_data.get("success_url") or settings.PAYMENT_SUCCESS_URL,
-                "failUrl": payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL,
-                "pendingUrl": payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL
+                "successUrl": success_url,
+                "failUrl": fail_url,
+                "pendingUrl": fail_url
             },
             "cartItems": payment_data.get("cart_items", [{
                 "name": payment_data.get("description", "Payment"),
@@ -80,8 +102,16 @@ class FawaterkService:
                 body = response.text
                 logger.error(f"❌ Fawaterk HTTP {status_code}: {body}")
                 if status_code == 422:
-                    logger.error(f"❌ Fawaterk 422 Unprocessable - check validation (URLs, currency, required fields). Response body above.")
-                raise Exception(f"Fawaterk API error: {status_code} {response.reason}: {body}")
+                    logger.error("❌ Fawaterk 422 Unprocessable - check validation (URLs, currency, required fields). Response body above.")
+                # Try to extract a short message from JSON body for client
+                try:
+                    err_json = response.json()
+                    msg = err_json.get("message") or err_json.get("msg") or (err_json.get("errors") and str(err_json["errors"])[:200])
+                    if msg:
+                        raise Exception(f"Fawaterk error: {msg}")
+                except (ValueError, TypeError):
+                    pass
+                raise Exception(f"Fawaterk API error: {status_code} {response.reason}: {body[:500] if len(body) > 500 else body}")
             
             result = response.json()
             

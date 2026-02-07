@@ -28,6 +28,9 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting AltayarVIP Backend Server...")
     logger.info(f"📊 Database: {settings.DATABASE_URL}")
     logger.info(f"🔧 Debug Mode: {settings.DEBUG}")
+    logger.info(f"🌐 APP_BASE_URL: {getattr(settings, 'APP_BASE_URL', '')}")
+    logger.info(f"💳 Payment redirects: success={getattr(settings, 'PAYMENT_SUCCESS_URL', '')}, fail={getattr(settings, 'PAYMENT_FAIL_URL', '')}")
+    logger.info(f"💳 Fawaterk default payment method: {getattr(settings, 'FAWATERK_DEFAULT_PAYMENT_METHOD', 2)} (2=Fawry)")
     
     # Create all tables
     try:

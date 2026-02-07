@@ -6,7 +6,7 @@ from enum import Enum
 
 class CreatePaymentRequest(BaseModel):
     amount: float = Field(..., gt=0)
-    currency: str = Field(default="EGP")
+    currency: str = Field(default="USD", description="USD, EGP, EUR, SAR, etc. Fawaterk supports multiple currencies.")
     customer_first_name: str
     customer_last_name: Optional[str] = None
     customer_email: str
@@ -14,7 +14,7 @@ class CreatePaymentRequest(BaseModel):
     description: str
     booking_id: Optional[str] = None
     order_id: Optional[str] = None
-    payment_method_id: int = Field(default=1, description="1=Card, 2=Fawry, 3=Wallet, 4=Vodafone Cash")
+    payment_method_id: int = Field(default=2, description="1=Card, 2=Fawry (default, often works when Card returns 422)")
     save_card: bool = Field(default=False, description="Whether to save the card for future use")
 
 

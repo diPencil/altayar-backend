@@ -897,12 +897,15 @@ def book_offer(
     db.commit()
     db.refresh(booking)
 
-    # 5. Initiate Payment with Save Card support
+    # 5. Initiate Payment (use settings: URLs + payment method, e.g. 2=Fawry works when Card fails)
+    from config.settings import settings
     payment_service = PaymentService(db)
     result = payment_service.initiate_booking_payment(
         booking_id=str(booking.id),
         user_id=str(current_user.id),
-        payment_method_id=1,
+        payment_method_id=getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2),
+        success_url=settings.PAYMENT_SUCCESS_URL,
+        fail_url=settings.PAYMENT_FAIL_URL,
         save_card=book_data.save_card
     )
     

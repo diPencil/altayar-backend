@@ -70,9 +70,13 @@ class Settings(BaseSettings):
     FAWATERK_PROVIDER_KEY: Optional[str] = None
     FAWATERK_BASE_URL: str = "https://app.fawaterk.com/api/v2"
     FAWATERK_TEST_MODE: bool = True
+    # 1=Card, 2=Fawry. Fawry (2) often works when Card returns 422 (e.g. redirect issues).
+    FAWATERK_DEFAULT_PAYMENT_METHOD: int = 2
+    # Optional: override currency sent to Fawaterk (e.g. "USD", "EGP"). Leave empty to use order/booking currency.
+    FAWATERK_FORCE_CURRENCY: Optional[str] = None
     
     # Application URLs
-    # Production: https://api.altayarvip.sbs (set APP_BASE_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL in .env)
+    # Production: set APP_BASE_URL=https://api.altayarvip.sbs - redirect URLs will be derived if not set
     APP_BASE_URL: str = "http://localhost:8082"
     PAYMENT_SUCCESS_URL: str = "altayarvip://payment/success"
     PAYMENT_FAIL_URL: str = "altayarvip://payment/fail"

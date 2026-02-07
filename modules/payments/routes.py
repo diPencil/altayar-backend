@@ -27,7 +27,6 @@ def create_payment(
     Initiate a payment for an Order or Booking.
     """
     payment_service = PaymentService(db)
-    
     # Check if this is for an order or booking
     if payment_data.order_id:
         return payment_service.initiate_order_payment(
