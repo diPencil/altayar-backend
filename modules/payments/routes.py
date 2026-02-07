@@ -53,21 +53,6 @@ def create_payment(
         )
 
 
-@router.get("/debug-fawaterk")
-def debug_fawaterk(amount: float = 100, currency: str = "USD", key: str = ""):
-    """
-    Call Fawaterk with minimal payload and return raw response (status_code, response_text, request_payload).
-    To use: set DEBUG_FAWATERK_KEY in .env then open .../debug-fawaterk?key=YOUR_KEY
-    Or when DEBUG=true, no key needed.
-    """
-    if not settings.DEBUG and getattr(settings, "DEBUG_FAWATERK_KEY", None) != key:
-        raise HTTPException(status_code=404, detail="Not available")
-    from modules.payments.fawaterk_service import FawaterkService
-    svc = FawaterkService()
-    result = svc.debug_invoice_request(amount=amount, currency=currency)
-    return result
-
-
 @router.post("/fawaterk/webhook")
 async def fawaterk_webhook(
     request: Request,

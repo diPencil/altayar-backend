@@ -102,6 +102,16 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+
+@app.get("/debug-fawaterk")
+@app.get("/api/debug-fawaterk")
+def debug_fawaterk(amount: float = 100, currency: str = "USD"):
+    """Call Fawaterk with minimal payload and return raw response (for debugging 422)."""
+    from modules.payments.fawaterk_service import FawaterkService
+    svc = FawaterkService()
+    return svc.debug_invoice_request(amount=amount, currency=currency)
+
+
 # Import and include routers
 try:
     # Auth routes
