@@ -37,13 +37,17 @@ class Settings(BaseSettings):
                 "http://127.0.0.1:8081",
                 "http://127.0.0.1:19006",
             ]
+            # Production API domain (for web clients if needed)
+            production_origins = [
+                "https://api.altayarvip.sbs",
+            ]
             
             # If default is "*", replace it with specific origins for credentials support
             if origins == ["*"]:
-                return dev_origins
+                return dev_origins + production_origins
                 
-            # Otherwise append dev origins to configured ones
-            for origin in dev_origins:
+            # Otherwise append dev origins and production to configured ones
+            for origin in dev_origins + production_origins:
                 if origin not in origins:
                     origins.append(origin)
                     
@@ -56,7 +60,8 @@ class Settings(BaseSettings):
                 "http://localhost:19006",
                 "http://127.0.0.1:3000",
                 "http://127.0.0.1:8081",
-                "http://127.0.0.1:19006"
+                "http://127.0.0.1:19006",
+                "https://api.altayarvip.sbs",
             ]
     
     # Fawaterk Payment Gateway
@@ -67,6 +72,7 @@ class Settings(BaseSettings):
     FAWATERK_TEST_MODE: bool = True
     
     # Application URLs
+    # Production: https://api.altayarvip.sbs (set APP_BASE_URL, PAYMENT_SUCCESS_URL, PAYMENT_FAIL_URL in .env)
     APP_BASE_URL: str = "http://localhost:8082"
     PAYMENT_SUCCESS_URL: str = "altayarvip://payment/success"
     PAYMENT_FAIL_URL: str = "altayarvip://payment/fail"

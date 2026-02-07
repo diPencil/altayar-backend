@@ -96,8 +96,8 @@ class PaymentService:
                 "customer_email": customer_email,
                 "customer_phone": customer_phone,
                 "customer_address": "",
-                "success_url": success_url,
-                "fail_url": fail_url,
+                "success_url": success_url or settings.PAYMENT_SUCCESS_URL,
+                "fail_url": fail_url or settings.PAYMENT_FAIL_URL,
                 "description": f"Order {order.order_number}",
                 "save_card": save_card,
                 "cart_items": [{
@@ -240,8 +240,8 @@ class PaymentService:
                 "customer_email": customer_email,
                 "customer_phone": customer_phone,
                 "customer_address": "",
-                "success_url": success_url,
-                "fail_url": fail_url,
+                "success_url": success_url or settings.PAYMENT_SUCCESS_URL,
+                "fail_url": fail_url or settings.PAYMENT_FAIL_URL,
                 "description": f"Booking {booking.booking_number}",
                 "save_card": save_card,
                 "cart_items": [{

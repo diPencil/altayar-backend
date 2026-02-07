@@ -46,9 +46,9 @@ class FawaterkService:
                 "address": payment_data.get("customer_address", "")
             },
             "redirectionUrls": {
-                "successUrl": payment_data.get("success_url", settings.PAYMENT_SUCCESS_URL),
-                "failUrl": payment_data.get("fail_url", settings.PAYMENT_FAIL_URL),
-                "pendingUrl": payment_data.get("fail_url", settings.PAYMENT_FAIL_URL)
+                "successUrl": payment_data.get("success_url") or settings.PAYMENT_SUCCESS_URL,
+                "failUrl": payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL,
+                "pendingUrl": payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL
             },
             "cartItems": payment_data.get("cart_items", [{
                 "name": payment_data.get("description", "Payment"),
@@ -74,7 +74,15 @@ class FawaterkService:
             logger.info(f"🔵 Fawaterk response status: {response.status_code}")
             logger.info(f"🔵 Fawaterk response body: {response.text}")
             
-            response.raise_for_status()
+            # On HTTP error, log body clearly (especially for 422) then raise with body in message
+            if not response.ok:
+                status_code = response.status_code
+                body = response.text
+                logger.error(f"❌ Fawaterk HTTP {status_code}: {body}")
+                if status_code == 422:
+                    logger.error(f"❌ Fawaterk 422 Unprocessable - check validation (URLs, currency, required fields). Response body above.")
+                raise Exception(f"Fawaterk API error: {status_code} {response.reason}: {body}")
+            
             result = response.json()
             
             # Check if response has data
