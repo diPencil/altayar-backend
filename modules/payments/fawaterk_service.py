@@ -18,143 +18,155 @@ class FawaterkService:
     def __init__(self):
         self.api_key = settings.FAWATERK_API_KEY
         self.vendor_key = settings.FAWATERK_VENDOR_KEY
-        self.base_url = settings.FAWATERK_BASE_URL
-        self.test_mode = settings.FAWATERK_TEST_MODE
+        # Test mode: use staging URL if base is production (test keys often only work on staging)
+        base = settings.FAWATERK_BASE_URL
+        if getattr(settings, "FAWATERK_TEST_MODE", False) and "app.fawaterk.com" in base:
+            base = "https://staging.fawaterk.com/api/v2"
+            logger.info(f"🔵 Fawaterk TEST_MODE: using staging URL {base}")
+        self.base_url = base
+        self.test_mode = getattr(settings, "FAWATERK_TEST_MODE", True)
     
-    def create_invoice(self, payment_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Create payment invoice on Fawaterk
-        Returns: {'invoice_id', 'invoice_key', 'url', 'fawry_code', etc.}
-        """
-        url = f"{self.base_url}/invoiceInitPay"
-        
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Redirect URLs: if still deep link but we have https API base, use it (Fawaterk often requires https)
+    def _build_payload(self, payment_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Build Fawaterk payload (shared for create_invoice and raw call)."""
         success_url = payment_data.get("success_url") or settings.PAYMENT_SUCCESS_URL
         fail_url = payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL
-        base = getattr(settings, "APP_BASE_URL", "") or ""
-        if (success_url.startswith("altayarvip://") and base.strip().lower().startswith("https://")):
+        base = (getattr(settings, "APP_BASE_URL", "") or getattr(settings, "PAYMENT_REDIRECT_BASE_URL", "") or "").strip()
+        if success_url.startswith("altayarvip://") and base.lower().startswith("https://"):
             base = base.rstrip("/")
             success_url = f"{base}/api/payments/success"
             fail_url = f"{base}/api/payments/fail"
             logger.info(f"🔵 Using derived payment redirect URLs: success={success_url}, fail={fail_url}")
-
-        # Fawaterk expected payload structure (avoid empty strings for required-looking fields)
         customer_phone = payment_data.get("customer_phone") or ""
         if not customer_phone.strip():
-            customer_phone = "0000000000"  # Placeholder; some gateways reject empty phone
+            customer_phone = "0000000000"
         customer_address = payment_data.get("customer_address") or ""
         if not customer_address.strip():
             customer_address = "N/A"
-        payment_method_id = payment_data.get("payment_method_id")
-        if payment_method_id is None:
-            payment_method_id = getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)  # 2=Fawry often works
         currency = payment_data.get("currency") or settings.DEFAULT_CURRENCY
         if getattr(settings, "FAWATERK_FORCE_CURRENCY", None):
             currency = settings.FAWATERK_FORCE_CURRENCY
+        payment_method_id = payment_data.get("payment_method_id")
+        if payment_method_id is None:
+            payment_method_id = getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)
+        if currency and str(currency).upper() == "USD":
+            payment_method_id = 1
+        elif currency and str(currency).upper() == "EGP":
+            payment_method_id = 2
+        amount = float(payment_data["amount"])
+        cart_items = payment_data.get("cart_items")
+        if not cart_items:
+            cart_items = [{"name": payment_data.get("description", "Payment"), "price": amount, "quantity": 1}]
+        # Fawaterk may expect string or number for cartTotal/price - try string first (API doc shows strings)
         payload = {
             "payment_method_id": payment_method_id,
-            "cartTotal": str(payment_data["amount"]),
+            "cartTotal": str(amount),
             "currency": currency,
             "customer": {
-                "first_name": payment_data["customer_first_name"] or "Customer",
+                "first_name": payment_data.get("customer_first_name") or "Customer",
                 "last_name": payment_data.get("customer_last_name") or "",
-                "email": payment_data["customer_email"] or "customer@example.com",
+                "email": payment_data.get("customer_email") or "customer@example.com",
                 "phone": customer_phone,
                 "address": customer_address
             },
-            "redirectionUrls": {
-                "successUrl": success_url,
-                "failUrl": fail_url,
-                "pendingUrl": fail_url
-            },
-            "cartItems": payment_data.get("cart_items", [{
-                "name": payment_data.get("description", "Payment"),
-                "price": str(payment_data["amount"]),
-                "quantity": 1
-            }])
+            "redirectionUrls": {"successUrl": success_url, "failUrl": fail_url, "pendingUrl": fail_url},
+            "cartItems": [{"name": str(i.get("name", "Item")), "price": str(i.get("price", amount)), "quantity": int(i.get("quantity", 1))} for i in cart_items]
         }
-
-        # If save_card is requested, add it to the payload
         if payment_data.get("save_card"):
             payload["save_card"] = True
-            # For Fawaterk v2, saving card often requires a specific tokenization flow or flag
-            # We add it here to ensure it's captured if supported by the endpoint
-            logger.info("🟢 Card will be tokenized/saved during this transaction")
-        
-        logger.info(f"🔵 Creating Fawaterk invoice: {payload['cartTotal']} {payload['currency']}")
+        return payload
+    
+    def _do_request(self, payload: Dict[str, Any]) -> requests.Response:
+        url = f"{self.base_url}/invoiceInitPay"
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        return requests.post(url, json=payload, headers=headers, timeout=30)
+    
+    def create_invoice(self, payment_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create payment invoice on Fawaterk.
+        On 422, retries once with the other payment method (Card vs Fawry).
+        Returns: {'invoice_id', 'invoice_key', 'url', 'fawry_code', etc.}
+        """
+        payload = self._build_payload(payment_data)
         logger.info(f"🔵 Fawaterk payload: {json.dumps(payload, indent=2)}")
         
-        try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
-            
-            # Log raw response
-            logger.info(f"🔵 Fawaterk response status: {response.status_code}")
-            logger.info(f"🔵 Fawaterk response body: {response.text}")
-            
-            # On HTTP error, log body clearly (especially for 422) then raise with body in message
+        def parse_error(response: requests.Response) -> str:
+            body = response.text
+            try:
+                err_json = response.json()
+                msg = (
+                    err_json.get("message") or err_json.get("msg") or err_json.get("error")
+                    or (err_json.get("detail") if isinstance(err_json.get("detail"), str) else None)
+                )
+                if not msg and isinstance(err_json.get("detail"), list):
+                    parts = [str(d.get("msg", d)) for d in err_json["detail"] if isinstance(d, dict)]
+                    if parts:
+                        msg = "; ".join(parts[:5])
+                if not msg and err_json.get("errors"):
+                    msg = str(err_json["errors"])[:300]
+                if msg:
+                    return msg
+            except (ValueError, TypeError, KeyError):
+                pass
+            return body[:400] if len(body) > 400 else body
+        
+        def handle_response(response: requests.Response) -> Dict[str, Any]:
+            logger.info(f"🔵 Fawaterk response status: {response.status_code}, body: {response.text[:500]}")
             if not response.ok:
-                status_code = response.status_code
-                body = response.text
-                logger.error(f"❌ Fawaterk HTTP {status_code}: {body}")
-                if status_code == 422:
-                    logger.error("❌ Fawaterk 422 Unprocessable - check validation (URLs, currency, required fields). Response body above.")
-                # Try to extract a short message from JSON body for client
-                try:
-                    err_json = response.json()
-                    msg = err_json.get("message") or err_json.get("msg") or (err_json.get("errors") and str(err_json["errors"])[:200])
-                    if msg:
-                        raise Exception(f"Fawaterk error: {msg}")
-                except (ValueError, TypeError):
-                    pass
-                raise Exception(f"Fawaterk API error: {status_code} {response.reason}: {body[:500] if len(body) > 500 else body}")
-            
+                logger.error(f"❌ Fawaterk HTTP {response.status_code}: {response.text}")
+                err_msg = parse_error(response)
+                raise Exception(f"Fawaterk: {err_msg}. (تأكد من إضافة دومين الـ redirect في لوحة Fawaterk: Integrations)")
             result = response.json()
-            
-            # Check if response has data
-            if 'data' not in result:
-                logger.error(f"❌ Fawaterk response missing 'data' field: {result}")
-                raise Exception(f"Invalid Fawaterk response structure: {result}")
-            
-            data = result.get('data', {})
-            
-            # Extract payment URL - Fawaterk returns it in different places
-            payment_url = None
-            
-            # Method 1: Direct 'url' field
-            if 'url' in data:
-                payment_url = data['url']
-            
-            # Method 2: Inside payment_data.redirectTo
-            elif 'payment_data' in data and isinstance(data['payment_data'], dict):
-                payment_url = data['payment_data'].get('redirectTo')
-            
-            # Method 3: Direct redirectTo field
-            elif 'redirectTo' in data:
-                payment_url = data['redirectTo']
-            
+            if "data" not in result:
+                raise Exception(f"Invalid Fawaterk response: {result}")
+            data = result.get("data", {})
+            payment_url = data.get("url") or (data.get("payment_data") or {}).get("redirectTo") or data.get("redirectTo")
             if not payment_url:
-                logger.error(f"❌ Fawaterk response missing payment URL: {data}")
-                raise Exception(f"Fawaterk did not return payment URL. Response: {data}")
-            
-            # Add the URL to the data dict for consistency
-            data['url'] = payment_url
-            
+                raise Exception(f"Fawaterk did not return payment URL: {data}")
+            data["url"] = payment_url
             logger.info(f"✅ Fawaterk invoice created: {data.get('invoice_id')}")
-            logger.info(f"✅ Payment URL: {payment_url}")
             return data
         
-        except requests.exceptions.HTTPError as e:
-            error_text = e.response.text if e.response else str(e)
-            logger.error(f"❌ Fawaterk HTTP error: {error_text}")
-            raise Exception(f"Fawaterk API error: {error_text}")
+        try:
+            response = self._do_request(payload)
+            if response.ok:
+                return handle_response(response)
+            if response.status_code == 422:
+                # Retry with the other payment method (Card<->Fawry)
+                other = 2 if payload["payment_method_id"] == 1 else 1
+                logger.info(f"🔵 Fawaterk 422, retrying with payment_method_id={other}")
+                payload["payment_method_id"] = other
+                response2 = self._do_request(payload)
+                if response2.ok:
+                    return handle_response(response2)
+                err_msg = parse_error(response2)
+                raise Exception(f"Fawaterk: {err_msg}. (أضف دومين الـ redirect في لوحة Fawaterk: Integrations)")
+            err_msg = parse_error(response)
+            raise Exception(f"Fawaterk: {err_msg}")
         except Exception as e:
+            if "Fawaterk:" in str(e):
+                raise
             logger.error(f"❌ Fawaterk error: {str(e)}")
             raise Exception(f"Failed to create Fawaterk invoice: {str(e)}")
+    
+    def debug_invoice_request(self, amount: float = 100, currency: str = "USD") -> Dict[str, Any]:
+        """Call Fawaterk with minimal payload and return raw response (for debugging 422)."""
+        payment_data = {
+            "amount": amount,
+            "currency": currency,
+            "customer_first_name": "Test",
+            "customer_last_name": "User",
+            "customer_email": "test@example.com",
+            "customer_phone": "01234567890",
+            "description": "Debug test",
+        }
+        payload = self._build_payload(payment_data)
+        response = self._do_request(payload)
+        return {
+            "status_code": response.status_code,
+            "response_text": response.text,
+            "request_payload": payload,
+            "base_url": self.base_url,
+        }
     
     def verify_webhook_hash_paid_or_failed(self, payload: Dict[str, Any]) -> tuple[bool, str]:
         """

@@ -74,10 +74,13 @@ class Settings(BaseSettings):
     FAWATERK_DEFAULT_PAYMENT_METHOD: int = 2
     # Optional: override currency sent to Fawaterk (e.g. "USD", "EGP"). Leave empty to use order/booking currency.
     FAWATERK_FORCE_CURRENCY: Optional[str] = None
+    # Optional: set to a secret string to allow GET /api/payments/debug-fawaterk?key=... to see raw Fawaterk response
+    DEBUG_FAWATERK_KEY: Optional[str] = None
     
     # Application URLs
-    # Production: set APP_BASE_URL=https://api.altayarvip.sbs - redirect URLs will be derived if not set
+    # Production: set APP_BASE_URL or PAYMENT_REDIRECT_BASE_URL so payment redirects use https
     APP_BASE_URL: str = "http://localhost:8082"
+    PAYMENT_REDIRECT_BASE_URL: Optional[str] = None  # e.g. https://api.altayarvip.sbs - used when deriving payment URLs
     PAYMENT_SUCCESS_URL: str = "altayarvip://payment/success"
     PAYMENT_FAIL_URL: str = "altayarvip://payment/fail"
     
