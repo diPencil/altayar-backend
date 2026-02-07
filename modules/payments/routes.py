@@ -207,6 +207,51 @@ def payment_fail(request: Request):
     """
 
 
+@router.get("/pay-later", response_class=HTMLResponse)
+def payment_pay_later(
+    payment_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    صفحة الدفع لاحقاً: عندما فشل Fawaterk نرسل المستخدم هنا ليتم الحجز ويدفع يدوياً.
+    """
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+    amount = "—"
+    currency = ""
+    if payment:
+        amount = str(float(payment.amount))
+        currency = payment.currency or "USD"
+    html = f"""
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+        <head>
+            <meta charset="utf-8">
+            <title>الدفع لاحقاً - AltayarVIP</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+                body {{ font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f0f9ff; color: #0f172a; padding: 1rem; }}
+                .card {{ background: white; padding: 2rem; border-radius: 1rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); text-align: center; max-width: 400px; }}
+                h1 {{ margin-top: 0; color: #1071b8; }}
+                .amount {{ font-size: 1.25rem; margin: 1rem 0; }}
+                .btn {{ display: inline-block; margin-top: 1rem; padding: 0.75rem 1.5rem; background: #1071b8; color: white; text-decoration: none; border-radius: 0.5rem; font-weight: bold; }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h1>تم تسجيل طلبك</h1>
+                <p>تم إنشاء الحجز بنجاح. المبلغ: <span class="amount">{amount} {currency}</span></p>
+                <p>للدفع: سنتواصل معك قريباً، أو يمكنك الاتصال بنا لإتمام الدفع.</p>
+                <a href="altayarvip://payment/success" class="btn">العودة للتطبيق</a>
+            </div>
+            <script>
+                setTimeout(function() {{ window.location.href = "altayarvip://payment/success"; }}, 3000);
+            </script>
+        </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+
 @router.get("/webhook-logs")
 def get_webhook_logs(
     invoice_id: str = None,

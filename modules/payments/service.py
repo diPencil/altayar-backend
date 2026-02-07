@@ -137,8 +137,30 @@ class PaymentService:
             }
         
         except Exception as e:
-            payment.status = PaymentStatus.FAILED
             payment.error_message = str(e)
+            if getattr(settings, "PAYMENT_MANUAL_FALLBACK", True):
+                base = (getattr(settings, "APP_BASE_URL", "") or getattr(settings, "PAYMENT_REDIRECT_BASE_URL", "") or "").strip().rstrip("/")
+                if base and base.lower().startswith("http"):
+                    pay_later_url = f"{base}/api/payments/pay-later?payment_id={payment.id}"
+                else:
+                    pay_later_url = f"https://api.altayarvip.sbs/api/payments/pay-later?payment_id={payment.id}"
+                self.db.commit()
+                logger.warning(f"Fawaterk failed (order), using pay-later fallback: {pay_later_url}")
+                return {
+                    "payment_id": str(payment.id),
+                    "payment_number": payment_number,
+                    "order_number": order.order_number,
+                    "amount": float(order.total_amount),
+                    "currency": order.currency,
+                    "status": "PENDING",
+                    "payment_url": pay_later_url,
+                    "invoice_id": "",
+                    "invoice_key": "",
+                    "fawry_code": None,
+                    "qr_code_url": None,
+                    "expires_at": None,
+                }
+            payment.status = PaymentStatus.FAILED
             self.db.commit()
             raise PaymentException(f"Failed to initiate payment: {str(e)}")
 
@@ -281,8 +303,31 @@ class PaymentService:
             }
         
         except Exception as e:
-            payment.status = PaymentStatus.FAILED
             payment.error_message = str(e)
+            if getattr(settings, "PAYMENT_MANUAL_FALLBACK", True):
+                # Keep PENDING and return pay-later URL so user can complete flow and pay manually
+                base = (getattr(settings, "APP_BASE_URL", "") or getattr(settings, "PAYMENT_REDIRECT_BASE_URL", "") or "").strip().rstrip("/")
+                if base and base.lower().startswith("http"):
+                    pay_later_url = f"{base}/api/payments/pay-later?payment_id={payment.id}"
+                else:
+                    pay_later_url = f"https://api.altayarvip.sbs/api/payments/pay-later?payment_id={payment.id}"
+                self.db.commit()
+                logger.warning(f"Fawaterk failed, using pay-later fallback: {pay_later_url}")
+                return {
+                    "payment_id": str(payment.id),
+                    "payment_number": payment_number,
+                    "booking_number": booking.booking_number,
+                    "amount": float(booking.total_amount),
+                    "currency": booking.currency,
+                    "status": "PENDING",
+                    "payment_url": pay_later_url,
+                    "invoice_id": "",
+                    "invoice_key": "",
+                    "fawry_code": None,
+                    "qr_code_url": None,
+                    "expires_at": None,
+                }
+            payment.status = PaymentStatus.FAILED
             self.db.commit()
             raise PaymentException(f"Failed to initiate payment: {str(e)}")
     

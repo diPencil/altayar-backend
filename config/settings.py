@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     FAWATERK_FORCE_CURRENCY: Optional[str] = None
     # Optional: set to a secret string to allow GET /api/payments/debug-fawaterk?key=... to see raw Fawaterk response
     DEBUG_FAWATERK_KEY: Optional[str] = None
+    # When True: if Fawaterk fails, return "pay later" page URL so user can complete booking and pay manually
+    PAYMENT_MANUAL_FALLBACK: bool = True
     
     # Application URLs
     # Production: set APP_BASE_URL or PAYMENT_REDIRECT_BASE_URL so payment redirects use https
