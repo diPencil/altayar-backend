@@ -30,12 +30,17 @@ class FawaterkService:
         """Build Fawaterk payload (shared for create_invoice and raw call)."""
         success_url = payment_data.get("success_url") or settings.PAYMENT_SUCCESS_URL
         fail_url = payment_data.get("fail_url") or settings.PAYMENT_FAIL_URL
-        base = (getattr(settings, "APP_BASE_URL", "") or getattr(settings, "PAYMENT_REDIRECT_BASE_URL", "") or "").strip()
-        if success_url.startswith("altayarvip://") and base.lower().startswith("https://"):
+        base = (getattr(settings, "PAYMENT_REDIRECT_BASE_URL", "") or getattr(settings, "APP_BASE_URL", "") or "").strip().rstrip("/")
+        # Fawaterk rejects altayarvip:// and localhost → always use https API domain for redirects
+        if success_url.startswith("altayarvip://") or not base or "localhost" in base.lower() or "127.0.0.1" in base:
+            base = "https://api.altayarvip.sbs"
+        elif not base.lower().startswith("https://"):
+            base = "https://api.altayarvip.sbs"
+        else:
             base = base.rstrip("/")
-            success_url = f"{base}/api/payments/success"
-            fail_url = f"{base}/api/payments/fail"
-            logger.info(f"🔵 Using derived payment redirect URLs: success={success_url}, fail={fail_url}")
+        success_url = f"{base}/api/payments/success"
+        fail_url = f"{base}/api/payments/fail"
+        logger.info(f"🔵 Fawaterk redirect URLs: success={success_url}, fail={fail_url}")
         customer_phone = payment_data.get("customer_phone") or ""
         if not customer_phone.strip():
             customer_phone = "0000000000"
@@ -63,7 +68,7 @@ class FawaterkService:
             "currency": currency,
             "customer": {
                 "first_name": payment_data.get("customer_first_name") or "Customer",
-                "last_name": payment_data.get("customer_last_name") or "",
+                "last_name": payment_data.get("customer_last_name") or "User",
                 "email": payment_data.get("customer_email") or "customer@example.com",
                 "phone": customer_phone,
                 "address": customer_address
@@ -89,7 +94,7 @@ class FawaterkService:
         payload = self._build_payload(payment_data)
         logger.info(f"🔵 Fawaterk payload: {json.dumps(payload, indent=2)}")
         
-        def parse_error(response: requests.Response) -> str:
+        def parse_error(response: requests.Response, include_full_body: bool = False) -> str:
             body = response.text
             try:
                 err_json = response.json()
@@ -100,14 +105,16 @@ class FawaterkService:
                 if not msg and isinstance(err_json.get("detail"), list):
                     parts = [str(d.get("msg", d)) for d in err_json["detail"] if isinstance(d, dict)]
                     if parts:
-                        msg = "; ".join(parts[:5])
+                        msg = "; ".join(parts[:10])
                 if not msg and err_json.get("errors"):
-                    msg = str(err_json["errors"])[:300]
+                    msg = str(err_json["errors"])[:500]
                 if msg:
+                    if include_full_body and body and len(body) < 1500:
+                        return f"{msg} [RAW: {body}]"
                     return msg
             except (ValueError, TypeError, KeyError):
                 pass
-            return body[:400] if len(body) > 400 else body
+            return body[:1500] if len(body) > 1500 else (body or "(empty response)")
         
         def handle_response(response: requests.Response) -> Dict[str, Any]:
             logger.info(f"🔵 Fawaterk response status: {response.status_code}, body: {response.text[:500]}")
@@ -138,8 +145,8 @@ class FawaterkService:
                 response2 = self._do_request(payload)
                 if response2.ok:
                     return handle_response(response2)
-                err_msg = parse_error(response2)
-                raise Exception(f"Fawaterk: {err_msg}. (أضف دومين الـ redirect في لوحة Fawaterk: Integrations)")
+                err_msg = parse_error(response2, include_full_body=True)
+                raise Exception(f"Fawaterk 422: {err_msg}")
             err_msg = parse_error(response)
             raise Exception(f"Fawaterk: {err_msg}")
         except Exception as e:

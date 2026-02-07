@@ -353,8 +353,8 @@ class PaymentService:
         
         # Check for card tokenization event
         if payload.get("token") or payload.get("card_token"):
-             self.process_token_webhook(payload)
-             return {"status": "success", "message": "Token processed"}
+            self.process_token_webhook(payload)
+            return {"status": "success", "message": "Token processed"}
         
         # Extract webhook data - handle both camelCase and snake_case
         invoice_id = str(payload.get("invoice_id", payload.get("InvoiceId", "")))
@@ -458,7 +458,6 @@ class PaymentService:
                         if order.status == OrderStatus.ISSUED:
                             order.status = OrderStatus.PAID
                         order.paid_at = datetime.utcnow()
-                        order.paid_at = datetime.utcnow()
                         logger.info(f"✅ Order {order.order_number} marked as PAID")
 
                         # Check if this order is linked to a Booking
@@ -467,12 +466,20 @@ class PaymentService:
                                 booking_id = item.item_metadata.get('booking_id')
                                 booking = self.db.query(Booking).filter(Booking.id == booking_id).first()
                                 if booking:
-                                    # Update Booking Status
                                     booking.payment_status = BookingPaymentStatus.PAID
                                     booking.status = BookingStatus.CONFIRMED
                                     booking.confirmed_at = datetime.utcnow()
-                                    self.db.commit() # Commit inner change
+                                    self.db.commit()
                                     logger.info(f"✅ Linked Booking {booking.booking_number} auto-confirmed via Invoice Payment")
+
+                # Update booking directly (e.g. offer checkout flow)
+                if payment.booking_id:
+                    booking = self.db.query(Booking).filter(Booking.id == payment.booking_id).first()
+                    if booking:
+                        booking.payment_status = BookingPaymentStatus.PAID
+                        booking.status = BookingStatus.CONFIRMED
+                        booking.confirmed_at = datetime.utcnow()
+                        logger.info(f"✅ Booking {booking.booking_number} marked as PAID")
                 
                 logger.info(f"✅ Payment {payment.payment_number} marked as PAID")
             
