@@ -171,17 +171,17 @@ class FawaterkService:
                  r_url = f"{base_domain}/{redirect_url.lstrip('/')}"
             
             payload = {
-                "customer": {
-                    "first_name": user_data.get('first_name', 'Valued'),
-                    "last_name": user_data.get('last_name', 'Customer'),
-                    "email": user_data.get('email', 'customer@example.com'),
-                    "phone": user_data.get('phone', '01000000000'),
-                    "address": "Cairo, Egypt",
+                "customerData": {
+                    "customer_first_name": user_data.get('first_name', 'Valued'),
+                    "customer_last_name": user_data.get('last_name', 'Customer'),
+                    "customer_email": user_data.get('email', 'customer@example.com'),
+                    "customer_phone": user_data.get('phone', '01000000000'),
+                    "customer_address": "Cairo, Egypt",
                     "customer_unique_id": str(user_data.get('id', 'cust_001')) 
                 },
                 "redirectionUrls": {
-                    "successUrl": r_url,
-                    "failUrl": r_url, 
+                    "success_url": r_url,
+                    "fail_url": r_url, 
                 },
                 "currency": "EGP"
             }
