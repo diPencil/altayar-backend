@@ -46,11 +46,69 @@ def create_payment(
             fail_url=settings.PAYMENT_FAIL_URL,
             save_card=payment_data.save_card
         )
+
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Either order_id or booking_id must be provided"
         )
+
+
+@router.post("/quick-pay", response_model=CreatePaymentResponse)
+def quick_pay(
+    amount: float,
+    currency: str = "EGP",
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(require_active_membership)
+):
+    """
+    (Quick Pay) Initiate a payment with a custom amount.
+    Creates a dedicated Order and Payment record.
+    """
+    from modules.orders.models import Order, OrderStatus, PaymentStatus as OrderPaymentStatus
+    from datetime import datetime
+    from uuid import uuid4
+    from shared.utils import generate_unique_number
+
+    if amount < 10:  # Minimum amount check
+         raise HTTPException(status_code=400, detail="Minimum amount is 10 EGP")
+
+    # 1. Create a "Quick Pay" Order
+    # We use the existing Order model but mark it as a custom invoice
+    
+    sequence = db.query(Order).count() + 1
+    order_number = generate_unique_number("QP", sequence) # QP = Quick Pay
+    
+    new_order = Order(
+        id=str(uuid4()),
+        user_id=current_user.id,
+        order_number=order_number,
+        total_amount=amount,
+        subtotal=amount,
+        tax_amount=0,
+        discount_amount=0,
+        currency=currency,
+        status=OrderStatus.ISSUED,
+        payment_status=OrderPaymentStatus.UNPAID,
+        created_at=datetime.utcnow(),
+        notes_en="Quick Payment (E-Payment)",
+        notes_ar="دفع مباشر (إلكتروني)"
+    )
+    
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+    
+    # 2. Initiate Payment for this order
+    payment_service = PaymentService(db)
+    return payment_service.initiate_order_payment(
+        order_id=str(new_order.id),
+        user_id=str(current_user.id),
+        payment_method_id=2, # Default to Card/Fawry
+        success_url=settings.PAYMENT_SUCCESS_URL,
+        fail_url=settings.PAYMENT_FAIL_URL,
+        save_card=False
+    )
 
 
 @router.post("/fawaterk/webhook")
