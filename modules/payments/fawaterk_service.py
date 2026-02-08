@@ -39,8 +39,8 @@ class FawaterkService:
         if not fail_url or "altayarvip" in fail_url: 
             fail_url = f"{base_domain}/api/payments/fail"
              
-        # 2. Force EGP (Crucial for V2)
-        currency = "EGP"
+        # 2. Currency (Dynamic)
+        currency = payment_data.get("currency", "EGP")
         
         # 3. Default Method (Card = 2)
         payment_method_id = 2 
