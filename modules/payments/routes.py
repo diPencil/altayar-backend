@@ -7,10 +7,11 @@ import logging
 from database.base import get_db
 from config.settings import settings
 from modules.payments.service import PaymentService
-from modules.payments.schemas import CreatePaymentRequest, CreatePaymentResponse, UserCardResponse, InitCardTokenResponse
+from modules.payments.schemas import CreatePaymentRequest, CreatePaymentResponse, QuickPayRequest, UserCardResponse, InitCardTokenResponse
 from modules.payments.models import Payment, PaymentWebhookLog
 from shared.exceptions import PaymentException, NotFoundException
 from shared.dependencies import get_admin_user, get_current_user, require_active_membership
+from shared.validators import validate_currency
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,7 @@ def create_payment(
 
 @router.post("/quick-pay", response_model=CreatePaymentResponse)
 def quick_pay(
-    amount: float,
-    currency: str = "EGP",
+    request: QuickPayRequest,
     db: Session = Depends(get_db),
     current_user: Any = Depends(require_active_membership)
 ):
@@ -70,8 +70,12 @@ def quick_pay(
     from uuid import uuid4
     from shared.utils import generate_unique_number
 
+    amount = float(request.amount)
+    currency = validate_currency(request.currency)
+    payment_method_id = request.payment_method_id or getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)
+
     if amount < 10:  # Minimum amount check
-         raise HTTPException(status_code=400, detail="Minimum amount is 10 EGP")
+        raise HTTPException(status_code=400, detail=f"Minimum amount is 10 {currency}")
 
     # 1. Create a "Quick Pay" Order
     # We use the existing Order model but mark it as a custom invoice
@@ -104,7 +108,7 @@ def quick_pay(
     return payment_service.initiate_order_payment(
         order_id=str(new_order.id),
         user_id=str(current_user.id),
-        payment_method_id=2, # Default to Card/Fawry
+        payment_method_id=payment_method_id,
         success_url=settings.PAYMENT_SUCCESS_URL,
         fail_url=settings.PAYMENT_FAIL_URL,
         save_card=False

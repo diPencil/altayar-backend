@@ -18,6 +18,12 @@ class CreatePaymentRequest(BaseModel):
     save_card: bool = Field(default=False, description="Whether to save the card for future use")
 
 
+class QuickPayRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+    currency: str = Field(default="EGP", description="Currency code for the quick payment")
+    payment_method_id: int = Field(default=2, description="Gateway payment method id")
+
+
 class CreatePaymentResponse(BaseModel):
     payment_id: str
     payment_number: str

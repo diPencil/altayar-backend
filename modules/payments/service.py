@@ -12,6 +12,7 @@ from modules.bookings.models import Booking, BookingStatus, PaymentStatus as Boo
 from shared.utils import generate_unique_number
 from shared.exceptions import PaymentException, NotFoundException
 from config.settings import settings
+from shared.validators import validate_currency
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,24 @@ class PaymentService:
     def __init__(self, db: Session):
         self.db = db
         self.fawaterk = FawaterkService()
+
+    def _normalize_payment_method_id(self, payment_method_id: int | None) -> int:
+        try:
+            method_id = int(payment_method_id or getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2))
+        except (TypeError, ValueError):
+            method_id = getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)
+
+        # Keep the gateway on the known-safe method unless the caller explicitly uses another supported one.
+        if method_id not in (2, 3):
+            method_id = getattr(settings, "FAWATERK_DEFAULT_PAYMENT_METHOD", 2)
+
+        return method_id
     
     def initiate_order_payment(
         self,
         order_id: str,
         user_id: str,
-        payment_method_id: int = 1,  # 1=card, 2=fawry
+        payment_method_id: int = 2,
         success_url: Optional[str] = None,
         fail_url: Optional[str] = None,
         save_card: bool = False
@@ -49,6 +62,9 @@ class PaymentService:
         
         if order.payment_status == OrderPaymentStatus.PAID:
             raise PaymentException("Order already paid")
+
+        order_currency = validate_currency(order.currency or settings.DEFAULT_CURRENCY)
+        payment_method_id = self._normalize_payment_method_id(payment_method_id)
         
         # Get user - for MVP we'll use minimal data
         from modules.users.models import User
@@ -75,7 +91,7 @@ class PaymentService:
             order_id=order_id,
             payment_type=PaymentType.ORDER,
             amount=order.total_amount,
-            currency=order.currency or settings.DEFAULT_CURRENCY,
+            currency=order_currency,
             provider=PaymentProvider.FAWATERK,
             status=PaymentStatus.PENDING,
             idempotency_key=idempotency_key
@@ -90,7 +106,7 @@ class PaymentService:
             fawaterk_data = {
                 "payment_method_id": payment_method_id,
                 "amount": float(order.total_amount),
-                "currency": order.currency or settings.DEFAULT_CURRENCY,
+                "currency": order_currency,
                 "customer_first_name": customer_first_name,
                 "customer_last_name": customer_last_name,
                 "customer_email": customer_email,
@@ -151,7 +167,7 @@ class PaymentService:
                     "payment_number": payment_number,
                     "order_number": order.order_number,
                     "amount": float(order.total_amount),
-                    "currency": order.currency,
+                    "currency": order_currency,
                     "status": "PENDING",
                     "payment_url": pay_later_url,
                     "invoice_id": "",
@@ -168,7 +184,7 @@ class PaymentService:
         self,
         booking_id: str,
         user_id: str,
-        payment_method_id: int = 1,  # 1=card, 2=fawry
+        payment_method_id: int = 2,
         success_url: Optional[str] = None,
         fail_url: Optional[str] = None,
         save_card: bool = False
@@ -192,6 +208,9 @@ class PaymentService:
         
         if booking.payment_status == BookingPaymentStatus.PAID:
             raise PaymentException("Booking already paid")
+
+        booking_currency = validate_currency(booking.currency or settings.DEFAULT_CURRENCY)
+        payment_method_id = self._normalize_payment_method_id(payment_method_id)
         
         # Get user
         from modules.users.models import User
@@ -224,7 +243,7 @@ class PaymentService:
                 booking_id=booking_id,
                 payment_type=PaymentType.BOOKING,
                 amount=booking.total_amount,
-                currency=booking.currency or settings.DEFAULT_CURRENCY,
+                currency=booking_currency,
                 provider=PaymentProvider.FAWATERK,
                 status=PaymentStatus.PENDING,
                 idempotency_key=idempotency_key,
@@ -256,7 +275,7 @@ class PaymentService:
             fawaterk_data = {
                 "payment_method_id": payment_method_id,
                 "amount": float(booking.total_amount),
-                "currency": booking.currency or settings.DEFAULT_CURRENCY,
+                "currency": booking_currency,
                 "customer_first_name": customer_first_name,
                 "customer_last_name": customer_last_name,
                 "customer_email": customer_email,
@@ -318,7 +337,7 @@ class PaymentService:
                     "payment_number": payment_number,
                     "booking_number": booking.booking_number,
                     "amount": float(booking.total_amount),
-                    "currency": booking.currency,
+                    "currency": booking_currency,
                     "status": "PENDING",
                     "payment_url": pay_later_url,
                     "invoice_id": "",

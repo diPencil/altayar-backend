@@ -6,6 +6,7 @@ import json
 from typing import Dict, Any, Optional
 from fastapi import HTTPException
 from config.settings import settings
+from shared.validators import validate_currency
 import logging
 
 logger = logging.getLogger(__name__)
@@ -39,11 +40,20 @@ class FawaterkService:
         if not fail_url or "altayarvip" in fail_url: 
             fail_url = f"{base_domain}/api/payments/fail"
              
-        # 2. Currency (Dynamic)
-        currency = payment_data.get("currency", "EGP")
-        
-        # 3. Default Method (Card = 2)
-        payment_method_id = 2 
+        # 2. Currency (Dynamic, but normalized to supported values)
+        currency_source = payment_data.get("currency") or settings.DEFAULT_CURRENCY
+        if getattr(settings, "FAWATERK_FORCE_CURRENCY", None):
+            currency_source = settings.FAWATERK_FORCE_CURRENCY
+        currency = validate_currency(currency_source)
+
+        # 3. Payment method id (use caller choice, but keep gateway on a safe supported method)
+        try:
+            payment_method_id = int(payment_data.get("payment_method_id", settings.FAWATERK_DEFAULT_PAYMENT_METHOD))
+        except (TypeError, ValueError):
+            payment_method_id = settings.FAWATERK_DEFAULT_PAYMENT_METHOD
+
+        if payment_method_id not in (2, 3):
+            payment_method_id = settings.FAWATERK_DEFAULT_PAYMENT_METHOD
 
         amount = float(payment_data["amount"])
         
