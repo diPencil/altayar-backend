@@ -60,6 +60,7 @@ dev_origins = [
     "http://localhost:3001",
     "http://localhost:8080",
     "http://localhost:8081",  # Expo dev server (common port)
+    "http://localhost:8083",  # Expo web fallback port used in this workspace
     "http://localhost:8082",  # Backend port (for testing)
     "http://localhost:19000",
     "http://localhost:19001",
@@ -67,6 +68,7 @@ dev_origins = [
     "http://127.0.0.1:3000",
     "http://127.0.0.1:8080",
     "http://127.0.0.1:8081",  # Expo dev server (common port)
+    "http://127.0.0.1:8083",  # Expo web fallback port used in this workspace
     "http://127.0.0.1:8082",  # Backend port (for testing)
     "http://127.0.0.1:19000",
     "http://127.0.0.1:19001",
@@ -74,6 +76,7 @@ dev_origins = [
     # Expo Web development server (default ports)
     "http://localhost:19000",  # Expo Web default
     "http://localhost:19006",  # Expo Web tunnel
+    "http://localhost:8083",   # Expo web fallback port used in this workspace
     "http://192.168.1.17:8081",  # Common local network IP
     "http://192.168.1.17:8082",  # Backend on network
     "http://192.168.1.17:19006",  # Expo Web on network
