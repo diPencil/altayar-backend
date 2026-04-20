@@ -3,7 +3,7 @@ import uuid
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status as http_status, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
@@ -13,7 +13,7 @@ from shared.dependencies import get_current_user, get_current_user_optional, get
 from modules.users.models import User
 from modules.reels.models import Reel, ReelInteraction, ReelStatus, InteractionType, ReelFavorite
 from modules.reels.schemas import ReelCreate, ReelUpdate, ReelResponse, InteractionCreate, InteractionResponse
-from modules.reels.utils import validate_video_url, get_youtube_thumbnail_url
+from modules.reels.utils import validate_video_url, get_youtube_thumbnail_url, generate_video_thumbnail
 from modules.notifications.utils import notify_comment_like, notify_comment_reply, notify_new_reel
 from config.settings import settings
 
@@ -22,8 +22,69 @@ logger = logging.getLogger(__name__)
 # Storage directory for uploaded videos
 REELS_STORAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'storage', 'reels')
 os.makedirs(REELS_STORAGE_DIR, exist_ok=True)
+REELS_THUMBNAILS_DIR = os.path.join(REELS_STORAGE_DIR, 'thumbnails')
+os.makedirs(REELS_THUMBNAILS_DIR, exist_ok=True)
 
 router = APIRouter()
+
+
+def build_reel_thumbnail_url(filename: str) -> str:
+    return f"{settings.APP_BASE_URL}/api/reels/thumbnail/{filename}"
+
+
+def ensure_reel_thumbnail(db: Session, reel: Reel) -> Optional[str]:
+    """
+    Return a usable thumbnail URL for a reel.
+
+    For YouTube reels we use the public YouTube thumbnail.
+    For uploaded or direct video URLs we try to extract the first frame once and cache it.
+    """
+    if reel.thumbnail_url:
+        return reel.thumbnail_url
+
+    if reel.video_type == 'YOUTUBE' and reel.video_url:
+        return get_youtube_thumbnail_url(reel.video_url)
+
+    if reel.video_type not in {'UPLOAD', 'URL'} or not reel.video_url:
+        return None
+
+    thumbnail_filename = f"{reel.id}.jpg"
+    thumbnail_path = os.path.join(REELS_THUMBNAILS_DIR, thumbnail_filename)
+
+    if os.path.exists(thumbnail_path):
+        thumbnail_url = build_reel_thumbnail_url(thumbnail_filename)
+        if reel.thumbnail_url != thumbnail_url:
+            reel.thumbnail_url = thumbnail_url
+            db.commit()
+        return thumbnail_url
+
+    if not generate_video_thumbnail(reel.video_url, thumbnail_path):
+        return None
+
+    thumbnail_url = build_reel_thumbnail_url(thumbnail_filename)
+    reel.thumbnail_url = thumbnail_url
+    db.commit()
+    return thumbnail_url
+
+
+def serialize_reel(db: Session, reel: Reel, is_liked: bool = False) -> Optional[ReelResponse]:
+    thumbnail_url = ensure_reel_thumbnail(db, reel)
+    return ReelResponse(
+        id=str(reel.id),
+        title=reel.title,
+        description=reel.description,
+        video_url=reel.video_url,
+        video_type=reel.video_type or 'URL',
+        thumbnail_url=thumbnail_url,
+        status=reel.status,
+        views_count=int(reel.views_count) if reel.views_count is not None else 0,
+        likes_count=int(reel.likes_count) if reel.likes_count is not None else 0,
+        comments_count=int(reel.comments_count) if reel.comments_count is not None else 0,
+        shares_count=int(reel.shares_count) if reel.shares_count is not None else 0,
+        created_at=reel.created_at,
+        updated_at=reel.updated_at,
+        is_liked=is_liked
+    )
 
 # --- Public / User Endpoints ---
 
@@ -50,27 +111,7 @@ def get_reels(
     results = []
     for reel in reels:
         try:
-            # Auto-generate thumbnail for YouTube videos if not present
-            thumbnail_url = reel.thumbnail_url
-            if not thumbnail_url and reel.video_type == 'YOUTUBE':
-                thumbnail_url = get_youtube_thumbnail_url(reel.video_url)
-            
-            reel_response = ReelResponse(
-                id=str(reel.id),
-                title=reel.title,
-                description=reel.description,
-                video_url=reel.video_url,
-                video_type=reel.video_type or 'URL',
-                thumbnail_url=thumbnail_url,
-                status=reel.status,
-                views_count=int(reel.views_count) if reel.views_count is not None else 0,
-                likes_count=int(reel.likes_count) if reel.likes_count is not None else 0,
-                comments_count=int(reel.comments_count) if reel.comments_count is not None else 0,
-                shares_count=int(reel.shares_count) if reel.shares_count is not None else 0,
-                created_at=reel.created_at,
-                updated_at=reel.updated_at,
-                is_liked=False
-            )
+            reel_response = serialize_reel(db, reel)
 
             # Get creator user info
             if reel.creator:
@@ -133,27 +174,7 @@ def get_user_favorites(
             ReelInteraction.type == InteractionType.LIKE
         ).first() is not None
         
-        # Auto-generate thumbnail for YouTube videos if not present
-        thumbnail_url = reel.thumbnail_url
-        if not thumbnail_url and reel.video_type == 'YOUTUBE':
-            thumbnail_url = get_youtube_thumbnail_url(reel.video_url)
-        
-        reel_response = ReelResponse(
-            id=str(reel.id),
-            title=reel.title,
-            description=reel.description,
-            video_url=reel.video_url,
-            video_type=reel.video_type or 'URL',
-            thumbnail_url=thumbnail_url,
-            status=reel.status,
-            views_count=int(reel.views_count) if reel.views_count is not None else 0,
-            likes_count=int(reel.likes_count) if reel.likes_count is not None else 0,
-            comments_count=int(reel.comments_count) if reel.comments_count is not None else 0,
-            shares_count=int(reel.shares_count) if reel.shares_count is not None else 0,
-            created_at=reel.created_at,
-            updated_at=reel.updated_at,
-            is_liked=is_liked
-        )
+        reel_response = serialize_reel(db, reel, is_liked=is_liked)
         results.append(reel_response)
     
     return results
@@ -168,15 +189,10 @@ def get_reel(
     if not reel or not reel.video_url:
         raise HTTPException(status_code=404, detail="Reel not found")
     
-    # Auto-generate thumbnail for YouTube videos if not present
-    thumbnail_url = reel.thumbnail_url
-    if not thumbnail_url and reel.video_type == 'YOUTUBE':
-        thumbnail_url = get_youtube_thumbnail_url(reel.video_url)
-        
     reel_response = ReelResponse.from_orm(reel)
     reel_response.video_url = reel.video_url  # Ensure it's set
     reel_response.video_type = reel.video_type or 'URL'  # Ensure it's set
-    reel_response.thumbnail_url = thumbnail_url  # Set thumbnail (auto-generated if needed)
+    reel_response.thumbnail_url = ensure_reel_thumbnail(db, reel)  # Set thumbnail (auto-generated if needed)
     if current_user:
         liked = db.query(ReelInteraction).filter(
             ReelInteraction.reel_id == reel.id,
@@ -599,7 +615,7 @@ async def upload_reel_video(
         # Validate file
         if not file.filename:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="No filename provided"
             )
         
@@ -649,7 +665,7 @@ async def upload_reel_video(
             content = await file.read()
             if not content:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
+                    status_code=http_status.HTTP_400_BAD_REQUEST,
                     detail="Empty file uploaded"
                 )
             f.write(content)
@@ -658,6 +674,12 @@ async def upload_reel_video(
         
         # Generate absolute URL for accessing the file
         video_url = f"{settings.APP_BASE_URL}/api/reels/video/{filename}"
+
+        thumbnail_url = None
+        thumbnail_filename = f"{file_id}.jpg"
+        thumbnail_path = os.path.join(REELS_THUMBNAILS_DIR, thumbnail_filename)
+        if generate_video_thumbnail(file_path, thumbnail_path):
+            thumbnail_url = build_reel_thumbnail_url(thumbnail_filename)
         
         # Create reel record
         new_reel = Reel(
@@ -665,6 +687,7 @@ async def upload_reel_video(
             description=description,
             video_url=video_url,
             video_type='UPLOAD',
+            thumbnail_url=thumbnail_url,
             status=status,
             created_by_user_id=current_admin.id
         )
@@ -694,7 +717,7 @@ async def upload_reel_video(
             except:
                 pass
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to upload video: {str(e)}"
         )
 
@@ -721,6 +744,24 @@ def get_reel_video(
         filename=filename
     )
 
+
+@router.get("/thumbnail/{filename}")
+def get_reel_thumbnail(filename: str):
+    """Serve generated reel thumbnails."""
+    if '..' in filename or '/' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    file_path = os.path.join(REELS_THUMBNAILS_DIR, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    return FileResponse(
+        file_path,
+        media_type='image/jpeg',
+        filename=filename
+    )
+
 @router.post("/", response_model=ReelResponse)
 def create_reel(
     reel: ReelCreate,
@@ -737,7 +778,7 @@ def create_reel(
         if not reel.video_url:
             logger.warning("Reel creation failed: video_url is required")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail="video_url is required when not uploading a file"
             )
         
@@ -746,7 +787,7 @@ def create_reel(
         if not is_valid:
             logger.warning(f"Reel creation failed: Invalid video URL - {error_msg}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=http_status.HTTP_400_BAD_REQUEST,
                 detail=error_msg or "Invalid video URL"
             )
         
@@ -756,9 +797,16 @@ def create_reel(
         
         # Auto-generate thumbnail for YouTube videos if not provided
         thumbnail_url = reel.thumbnail_url
-        if not thumbnail_url and final_video_type == 'YOUTUBE':
-            thumbnail_url = get_youtube_thumbnail_url(reel.video_url)
-            logger.info(f"Auto-generated YouTube thumbnail: {thumbnail_url}")
+        if not thumbnail_url:
+            if final_video_type == 'YOUTUBE':
+                thumbnail_url = get_youtube_thumbnail_url(reel.video_url)
+                logger.info(f"Auto-generated YouTube thumbnail: {thumbnail_url}")
+            elif final_video_type in {'UPLOAD', 'URL'}:
+                thumbnail_filename = f"{uuid.uuid4()}.jpg"
+                thumbnail_path = os.path.join(REELS_THUMBNAILS_DIR, thumbnail_filename)
+                if generate_video_thumbnail(reel.video_url, thumbnail_path):
+                    thumbnail_url = build_reel_thumbnail_url(thumbnail_filename)
+                    logger.info(f"Auto-generated video thumbnail: {thumbnail_url}")
         
         # Ensure status is a ReelStatus enum (Pydantic should handle this, but be safe)
         reel_status = reel.status
@@ -794,22 +842,7 @@ def create_reel(
                 logger.warning(f"Failed to send notifications: {e}")
         
         # Return properly serialized response
-        response = ReelResponse(
-            id=str(new_reel.id),
-            title=new_reel.title,
-            description=new_reel.description,
-            video_url=new_reel.video_url,
-            video_type=new_reel.video_type or 'URL',
-            thumbnail_url=new_reel.thumbnail_url,
-            status=new_reel.status,
-            views_count=int(new_reel.views_count) if new_reel.views_count is not None else 0,
-            likes_count=int(new_reel.likes_count) if new_reel.likes_count is not None else 0,
-            comments_count=int(new_reel.comments_count) if new_reel.comments_count is not None else 0,
-            shares_count=int(new_reel.shares_count) if new_reel.shares_count is not None else 0,
-            created_at=new_reel.created_at,
-            updated_at=new_reel.updated_at,
-            is_liked=False
-        )
+        response = serialize_reel(db, new_reel)
         logger.info(f"Returning response for reel {response.id}")
         return response
         
@@ -821,7 +854,7 @@ def create_reel(
         # Rollback on error
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create reel: {str(e)}"
         )
 
@@ -963,22 +996,7 @@ def get_all_reels_admin(
             
             try:
                 # Manually construct response to ensure all required fields are set
-                reel_response = ReelResponse(
-                    id=str(reel.id),
-                    title=reel.title,
-                    description=reel.description,
-                    video_url=reel.video_url,  # Already checked above
-                    video_type=reel.video_type if reel.video_type else 'URL',
-                    thumbnail_url=reel.thumbnail_url,
-                    status=reel.status,
-                    views_count=int(reel.views_count) if reel.views_count is not None else 0,
-                    likes_count=int(reel.likes_count) if reel.likes_count is not None else 0,
-                    comments_count=int(reel.comments_count) if reel.comments_count is not None else 0,
-                    shares_count=int(reel.shares_count) if reel.shares_count is not None else 0,
-                    created_at=reel.created_at,
-                    updated_at=reel.updated_at,
-                    is_liked=False  # Admin view doesn't need this
-                )
+                reel_response = serialize_reel(db, reel)
                 results.append(reel_response)
             except Exception as e:
                 logger.warning(f"Failed to serialize reel {reel.id}: {e}", exc_info=True)

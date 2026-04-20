@@ -1,9 +1,23 @@
 """
 Utility functions for Reels module
 """
+import logging
+import os
 import re
+import subprocess
+import tempfile
 from typing import Optional, Tuple
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
+
+from PIL import Image
+
+try:
+    from imageio_ffmpeg import get_ffmpeg_exe
+except Exception:  # pragma: no cover - optional during install/bootstrap
+    get_ffmpeg_exe = None
+
+
+logger = logging.getLogger(__name__)
 
 
 def validate_video_url(url: str) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -77,3 +91,59 @@ def get_youtube_thumbnail_url(video_url: str) -> Optional[str]:
     if video_id:
         return f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
     return None
+
+
+def generate_video_thumbnail(video_source: str, output_path: str, seek_seconds: float = 0.5) -> bool:
+    """Extract a thumbnail from the first visible frame of a video."""
+    if not video_source:
+        return False
+
+    if not get_ffmpeg_exe:
+        logger.warning("imageio-ffmpeg is not available; skipping thumbnail generation")
+        return False
+
+    ffmpeg_exe = get_ffmpeg_exe()
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    temp_output = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            temp_output = temp_file.name
+
+        command = [
+            ffmpeg_exe,
+            "-y",
+            "-ss",
+            str(seek_seconds),
+            "-i",
+            video_source,
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            temp_output,
+        ]
+
+        result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+        if result.returncode != 0 or not os.path.exists(temp_output):
+            logger.warning("Failed to extract video thumbnail: %s", result.stderr.strip() if result.stderr else "unknown error")
+            return False
+
+        with Image.open(temp_output) as image:
+            rgb_image = image.convert("RGB")
+            rgb_image.thumbnail((1280, 1280))
+            rgb_image.save(output_path, format="JPEG", quality=88, optimize=True)
+
+        return os.path.exists(output_path)
+
+    except Exception as exc:
+        logger.warning("Thumbnail generation failed for %s: %s", video_source, exc)
+        return False
+    finally:
+        if temp_output and os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except OSError:
+                pass
